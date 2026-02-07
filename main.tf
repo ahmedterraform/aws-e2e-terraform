@@ -1,116 +1,146 @@
-
 terraform {
-  required_version = ">= 1.6.0"
+  required_version = ">= 1.4.0"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.0"
+      version = "~> 6.0"
     }
   }
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region = local.region
 }
 
-data "aws_caller_identity" "me" {}
+locals {
+  project_name = "aws-e2e"
+  region       = "us-east-1"
 
-data "aws_availability_zones" "available" {
-  state = "available"
+  vpc_cidr = "10.0.0.0/16"
+
+  # هنستخدم 2 Availability Zones عشان High Availability
+  az_a = "us-east-1a"
+  az_b = "us-east-1b"
+
+  public_subnet_a_cidr  = "10.0.1.0/24"
+  public_subnet_b_cidr  = "10.0.2.0/24"
+  private_subnet_a_cidr = "10.0.101.0/24"
+  private_subnet_b_cidr = "10.0.102.0/24"
+
+  common_tags = {
+    Project = "aws-e2e"
+    Owner   = "Ahmed"
+  }
 }
 
 resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_support   = true
+  cidr_block           = local.vpc_cidr
   enable_dns_hostnames = true
+  enable_dns_support   = true
 
-  tags = {
-    Name    = "aws-e2e-vpc"
-    Project = "aws-e2e"
-  }
-
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-vpc"
+  })
 }
-
 
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
-  tags = { name = "aws-2e2-igw"
-    Project = "aws-e2e"
-  }
+
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-igw"
+  })
 }
 
 resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = data.aws_availability_zones.available.names[0]
+  cidr_block              = local.public_subnet_a_cidr
+  availability_zone       = local.az_a
   map_public_ip_on_launch = true
 
-  tags = {
-    Name    = "aws-e2e-public-a"
-    Project = "aws-e2e"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-public-a"
+  })
 }
-
 resource "aws_subnet" "public_b" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = data.aws_availability_zones.available.names[1]
+  cidr_block              = local.public_subnet_b_cidr
+  availability_zone       = local.az_b
   map_public_ip_on_launch = true
 
-  tags = {
-    Name    = "aws-e2e-public-b"
-    Project = "aws-e2e"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-public-b"
+  })
 }
-resource "aws_subnet" "private_a" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.11.0/24"
-  availability_zone = data.aws_availability_zones.available.names[0]
 
-  tags = {
-    Name    = "aws-e2e-private-a"
-    Project = "aws-e2e"
-  }
+resource "aws_subnet" "private_a" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = local.private_subnet_a_cidr
+  availability_zone       = local.az_a
+  map_public_ip_on_launch = false
+
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-private-a"
+  })
 }
 
 resource "aws_subnet" "private_b" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.12.0/24"
-  availability_zone = data.aws_availability_zones.available.names[1]
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = local.private_subnet_b_cidr
+  availability_zone       = local.az_b
+  map_public_ip_on_launch = false
 
-  tags = {
-    Name    = "aws-e2e-private-b"
-    Project = "aws-e2e"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-private-b"
+  })
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-public-rt"
+  })
+}
+resource "aws_route" "public_internet" {
+  route_table_id         = aws_route_table.public.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.igw.id
+}
+resource "aws_route_table_association" "public_a" {
+  subnet_id      = aws_subnet.public_a.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public_b" {
+  subnet_id      = aws_subnet.public_b.id
+  route_table_id = aws_route_table.public.id
 }
 
 resource "aws_eip" "nat_eip" {
   domain = "vpc"
 
-  tags = {
-    Name    = "aws-e2e-nat-eip"
-    Project = "aws-e2e"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-nat-eip"
+  })
 }
 
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat_eip.id
   subnet_id     = aws_subnet.public_a.id
 
-  tags = {
-    Name    = "aws-e2e-nat"
-    Project = "aws-e2e"
-  }
-
   depends_on = [aws_internet_gateway.igw]
+
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-nat"
+  })
 }
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
-  tags = {
-    Name    = "aws-e2e-rt-private"
-    Project = "aws-e2e"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-private-rt"
+  })
 }
 resource "aws_route" "private_internet" {
   route_table_id         = aws_route_table.private.id
@@ -125,100 +155,4 @@ resource "aws_route_table_association" "private_a" {
 resource "aws_route_table_association" "private_b" {
   subnet_id      = aws_subnet.private_b.id
   route_table_id = aws_route_table.private.id
-}
-resource "aws_security_group" "alb_sg" {
-  name        = "aws-e2e-alb-sg"
-  description = "Allow HTTP from Internet"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description = "HTTP from anywhere"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Allow all outbound"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name    = "aws-e2e-alb-sg"
-    Project = "aws-e2e"
-  }
-}
-resource "aws_security_group" "ec2_sg" {
-  name        = "aws-e2e-ec2-sg"
-  description = "Allow HTTP from ALB only"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description     = "HTTP from ALB SG"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
-  }
-
-  egress {
-    description = "Allow all outbound"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name    = "aws-e2e-ec2-sg"
-    Project = "aws-e2e"
-  }
-}
-resource "aws_lb_target_group" "app_tg" {
-  name     = "aws-e2e-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
-
-  health_check {
-    path                = "/"
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    timeout             = 5
-    interval            = 30
-    matcher             = "200-399"
-  }
-
-  tags = {
-    Name    = "aws-e2e-tg"
-    Project = "aws-e2e"
-  }
-}
-resource "aws_lb" "alb" {
-  name               = "aws-e2e-alb"
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb_sg.id]
-  subnets = [
-    aws_subnet.public_a.id,
-    aws_subnet.public_b.id
-  ]
-
-  tags = {
-    Name    = "aws-e2e-alb"
-    Project = "aws-e2e"
-  }
-}
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.alb.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.app_tg.arn
-  }
 }
