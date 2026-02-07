@@ -1,6 +1,7 @@
 # AWS VPC (Public/Private Subnets) + NAT Gateway using Terraform
 
 This repository demonstrates how to build a production-style AWS networking baseline using Terraform:
+![Terraform CI](../../actions/workflows/terraform-ci.yml/badge.svg)
 - Public subnets for internet-facing components
 - Private subnets for internal workloads (no public IPs)
 - NAT Gateway to allow private subnets outbound internet access securely
@@ -32,3 +33,4 @@ terraform fmt
 terraform validate
 terraform plan
 terraform apply
+
